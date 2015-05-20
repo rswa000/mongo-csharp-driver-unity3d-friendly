@@ -1,0 +1,8 @@
+baseurl = "/mongo-csharp-driver/1.10"
+languageCode = "en-us"
+title = "MongoDB CSharp Driver"
+theme = "mongodb"
+canonifyurls = false
+
+[blackfriday]
+  plainIdAnchors = true

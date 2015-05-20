@@ -603,18 +603,23 @@ namespace MongoDB.DriverUnitTests
         }
 
         [Test]
-        [RequiresServer(StorageEngines = "wiredtiger")]
+        [RequiresServer(MinimumVersion = "2.7.0")]
         public void TestCreateCollectionSetStorageOptions()
         {
-            var collection = _database.GetCollection("cappedcollection");
+            var collection = _database.GetCollection("storage_engine_collection");
             collection.Drop();
             Assert.IsFalse(collection.Exists());
-            var options = CollectionOptions.SetStorageOptions(
-                new BsonDocument("wiredtiger", new BsonDocument("configString", "block_compressor=zlib")));
+            var storageEngineOptions = new BsonDocument
+            {
+                { "wiredTiger", new BsonDocument("configString", "block_compressor=zlib") },
+                { "mmapv1", new BsonDocument() }
+            };
+            var options = CollectionOptions.SetStorageEngineOptions(storageEngineOptions);
             _database.CreateCollection(collection.Name, options);
-            Assert.IsTrue(collection.Exists());
-            var stats = collection.GetStats();
-            collection.Drop();
+
+            var result = _database.RunCommand("listCollections");
+            var resultCollection = result.Response["cursor"]["firstBatch"].AsBsonArray.Where(doc => doc["name"] == collection.Name).Single();
+            Assert.AreEqual(storageEngineOptions, resultCollection["options"]["storageEngine"]);
         }
 
         [Test]
@@ -693,7 +698,7 @@ namespace MongoDB.DriverUnitTests
         }
 
         [Test]
-        [RequiresServer(StorageEngines = "wiredtiger")]
+        [RequiresServer(StorageEngines = "wiredTiger")]
         public void TestCreateIndexWithStorageOptions()
         {
             _collection.Drop();
@@ -702,8 +707,8 @@ namespace MongoDB.DriverUnitTests
 
             _collection.CreateIndex(
                 IndexKeys.Ascending("x"),
-                IndexOptions.SetStorageOptions(
-                    new BsonDocument("wiredtiger", new BsonDocument("configString", "block_compressor=zlib"))));
+                IndexOptions.SetStorageEngineOptions(
+                    new BsonDocument("wiredTiger", new BsonDocument("configString", "block_compressor=zlib"))));
 
             var result = _collection.GetIndexes();
             Assert.AreEqual(2, result.Count);
@@ -2008,7 +2013,12 @@ namespace MongoDB.DriverUnitTests
                 else
                 {
                     var winningPlan = plan["queryPlanner"]["winningPlan"].AsBsonDocument;
-                    var inputStage = winningPlan["inputStage"]["inputStage"].AsBsonDocument; // not sure why there are two inputStages
+                    var inputStage = winningPlan["inputStage"].AsBsonDocument;
+                    // working around a server bug were sometimes the inputStage is nested inside the inputStage
+                    if (inputStage.Contains("inputStage"))
+                    {
+                        inputStage = inputStage["inputStage"].AsBsonDocument;
+                    }
                     var stage = inputStage["stage"].AsString;
                     var keyPattern = inputStage["keyPattern"].AsBsonDocument;
                     Assert.That(stage, Is.EqualTo("IXSCAN"));
@@ -2937,45 +2947,21 @@ namespace MongoDB.DriverUnitTests
         }
 
         [Test]
-        public void TestTextSearch()
-        {
-            if (_primary.Supports(FeatureId.TextSearchCommand))
-            {
-                if (_primary.InstanceType != MongoServerInstanceType.ShardRouter)
-                {
-                    using (_server.RequestStart(null, _primary))
-                    {
-                        _collection.Drop();
-                        _collection.Insert(new BsonDocument("x", "The quick brown fox"));
-                        _collection.Insert(new BsonDocument("x", "jumped over the fence"));
-                        _collection.CreateIndex(IndexKeys.Text("x"));
-
-                        var textSearchCommand = new CommandDocument
-                    {
-                        { "text", _collection.Name },
-                        { "search", "fox" }
-                    };
-                        var commandResult = _database.RunCommand(textSearchCommand);
-                        var response = commandResult.Response;
-                        Assert.AreEqual(1, response["stats"]["n"].ToInt32());
-                        Assert.AreEqual("The quick brown fox", response["results"][0]["obj"]["x"].AsString);
-                    }
-                }
-            }
-        }
-
-        [Test]
-        [RequiresServer(StorageEngines = "mmapv1")]
+        [RequiresServer(VersionLessThan = "2.8.0")]
         public void TestTotalDataSize()
         {
+#pragma warning disable 618
             var dataSize = _collection.GetTotalDataSize();
+#pragma warning restore
         }
 
         [Test]
-        [RequiresServer(StorageEngines = "mmapv1")]
+        [RequiresServer(VersionLessThan = "2.8.0")]
         public void TestTotalStorageSize()
         {
+#pragma warning disable 618
             var dataSize = _collection.GetTotalStorageSize();
+#pragma warning restore
         }
 
         [Test]
